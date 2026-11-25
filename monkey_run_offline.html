@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Monkey Run — Offline Runner</title>
+<style>
+:root{--ink:#24302a;--leaf:#2d6a4f;--gold:#f4b942;--paper:#f7f3e8}
+*{box-sizing:border-box} body{margin:0;background:linear-gradient(#dff3e5,#f7f3e8);font-family:system-ui,Segoe UI,Arial,sans-serif;color:var(--ink);min-height:100vh;display:grid;place-items:center;padding:16px}
+.wrap{width:min(960px,100%)} .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+h1{font-size:clamp(24px,4vw,38px);margin:0;color:#24543d}.sub{margin:3px 0 0;color:#55705f;font-size:14px}
+.panel{background:#fffdf6;border:1px solid #d7e5d6;border-radius:18px;padding:12px;box-shadow:0 10px 28px #23452b16}
+.hud{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:9px}
+.stats{display:flex;gap:8px;flex-wrap:wrap}.pill{background:#edf5e9;border-radius:999px;padding:7px 12px;font-weight:700;font-size:13px}
+button,select{border:0;border-radius:11px;padding:10px 14px;font:600 14px system-ui;cursor:pointer;background:var(--leaf);color:white}
+button.secondary{background:#e9f0e6;color:#294c38}button:focus-visible,select:focus-visible{outline:3px solid #f4b942;outline-offset:2px}
+canvas{display:block;width:100%;height:auto;border-radius:13px;background:#dff3e5;touch-action:manipulation}
+.controls{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.hint{font-size:13px;color:#5d6f61}.touch{display:flex;gap:8px}.touch button{min-width:88px}
+.overlay{position:relative}.screen{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:18px;background:#183b2bbd;color:white;border-radius:13px}
+.screen[hidden]{display:none}.modal{max-width:440px;background:#fffdf4;color:#24302a;border-radius:18px;padding:22px;box-shadow:0 12px 36px #0003}
+.modal h2{margin:0 0 7px;color:#24543d}.modal p{margin:7px 0 14px;line-height:1.45}.modes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}.mode{background:#e8f1e5;color:#294c38}.mode.active{background:#f4b942;color:#34280d}
+.small{font-size:12px;color:#68796b;margin-top:10px}
+@media(max-width:560px){body{padding:9px}.panel{padding:8px}.hint{width:100%}.touch button{min-width:74px;padding:10px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <div class="top"><div><h1>🐒 Monkey Run</h1><p class="sub">A jungle-inspired endless runner • works fully offline</p></div><div class="pill">No install • Single HTML file</div></div>
+ <main class="panel">
+  <div class="hud">
+   <div class="stats"><span class="pill">Score: <span id="score">0</span></span><span class="pill">Best: <span id="best">0</span></span><span class="pill">Mode: <span id="modeLabel">Beginner</span></span></div>
+   <div><button class="secondary" id="pauseBtn">Pause</button> <button id="restartBtn">Restart</button></div>
+  </div>
+  <div class="overlay">
+   <canvas id="game" width="900" height="330" aria-label="Monkey Run game"></canvas>
+   <div class="screen" id="startScreen"><div class="modal">
+    <h2>Ready to swing? 🌴</h2><p>Help the monkey jump over jungle obstacles and collect bananas. The game runs offline in your browser.</p>
+    <div class="modes"><button class="mode active" data-mode="beginner">Beginner</button><button class="mode" data-mode="medium">Medium</button><button class="mode" data-mode="pro">Pro</button></div>
+    <button id="playBtn">Start Game</button><div class="small">Space / ↑ / Tap = Jump • ↓ = Duck</div>
+   </div></div>
+   <div class="screen" id="endScreen" hidden><div class="modal"><h2>Game Over!</h2><p>Your score: <b id="finalScore">0</b></p><button id="againBtn">Play Again</button> <button class="secondary" id="menuBtn">Change Mode</button></div></div>
+   <div class="screen" id="pauseScreen" hidden><div class="modal"><h2>Paused</h2><p>Take a little jungle break.</p><button id="resumeBtn">Resume</button></div></div>
+  </div>
+  <div class="controls"><div class="hint">Keyboard: <b>Space / ↑</b> jump, <b>↓</b> duck, <b>P</b> pause. On mobile, tap the game to jump.</div><div class="touch"><button id="jumpBtn">⬆ Jump</button><button class="secondary" id="duckBtn">⬇ Duck</button></div></div>
+ </main>
+ <p class="small">Tip: Choose Beginner to learn, Medium for a challenge, and Pro for fast reflexes. Best score is saved on this device.</p>
+</div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id);
+const W=900,H=330,ground=267;
+const settings={beginner:{speed:5.0,gap:1150,gravity:.62,jump:-13.8,label:'Beginner'},medium:{speed:6.5,gap:900,gravity:.68,jump:-14.2,label:'Medium'},pro:{speed:8.2,gap:720,gravity:.74,jump:-14.8,label:'Pro'}};
+let mode='beginner',state='menu',score=0,best=0,speed=5,spawn=0,obstacles=[],bananas=[],particles=[],frame=0,groundOffset=0;
+try{best=Number(localStorage.getItem('monkeyRunBest')||0)}catch(e){}
+$('best').textContent=best;
+const monkey={x:105,y:ground-52,w:43,h:52,vy:0,onGround:true,duck:false};
+function setMode(m){mode=m;document.querySelectorAll('.mode').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));$('modeLabel').textContent=settings[m].label}
+document.querySelectorAll('.mode').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+function show(which){$('startScreen').hidden=which!=='start';$('endScreen').hidden=which!=='end';$('pauseScreen').hidden=which!=='pause'}
+function reset(){score=0;speed=settings[mode].speed;spawn=500;obstacles=[];bananas=[];particles=[];frame=0;groundOffset=0;monkey.y=ground-monkey.h;monkey.vy=0;monkey.onGround=true;monkey.duck=false;$('score').textContent='0';}
+function start(){reset();state='playing';show('none');$('pauseBtn').textContent='Pause'}
+function gameOver(){state='over';$('finalScore').textContent=Math.floor(score);if(Math.floor(score)>best){best=Math.floor(score);$('best').textContent=best;try{localStorage.setItem('monkeyRunBest',best)}catch(e){}}show('end')}
+function jump(){if(state==='menu'){start();return}if(state!=='playing')return;if(monkey.onGround){monkey.vy=settings[mode].jump;monkey.onGround=false;monkey.duck=false;}}
+function togglePause(){if(state==='playing'){state='paused';show('pause');$('pauseBtn').textContent='Resume'}else if(state==='paused'){state='playing';show('none');$('pauseBtn').textContent='Pause'}}
+function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function spawnObstacle(){const type=Math.random()<.58?'stump':'rock';const h=type==='stump'?34:25,w=type==='stump'?30:37;obstacles.push({x:W+20,y:ground-h,w,h,type});if(Math.random()<.62)bananas.push({x:W+135,y:ground-80-Math.random()*45,r:10});}
+function drawBackground(){
+ const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#d9f1e3');g.addColorStop(1,'#f5f1d9');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // distant jungle hills
+ ctx.fillStyle='#b7d9b5';ctx.beginPath();ctx.moveTo(0,210);for(let x=0;x<=W;x+=80)ctx.quadraticCurveTo(x+40,150+Math.sin(x*.02)*18,x+80,210);ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.fill();
+ for(let i=0;i<8;i++){let x=((i*145-groundOffset*.25)%1050+1050)%1050-80;ctx.fillStyle=i%2?'#7fb18a':'#91bd8e';ctx.beginPath();ctx.arc(x,180,34,0,Math.PI*2);ctx.fill();ctx.fillRect(x-9,180,18,65)}
+ ctx.fillStyle='#67935e';ctx.fillRect(0,ground,W,H-ground);
+ ctx.fillStyle='#8ab76c';ctx.fillRect(0,ground,W,7);
+ ctx.strokeStyle='#527d4c';ctx.lineWidth=3;for(let x=-(groundOffset%42);x<W;x+=42){ctx.beginPath();ctx.moveTo(x,ground+23);ctx.lineTo(x+18,ground+23);ctx.stroke()}
+}
+function drawMonkey(){
+ const duck=monkey.duck&&monkey.onGround, h=duck?30:52, y=duck?ground-h:monkey.y;
+ // tail
+ ctx.strokeStyle='#75451f';ctx.lineWidth=7;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(monkey.x+8,y+32);ctx.quadraticCurveTo(monkey.x-18,y+24+Math.sin(frame*.22)*5,monkey.x-8,y+10);ctx.stroke();
+ // body and head
+ ctx.fillStyle='#925a2d';ctx.beginPath();ctx.ellipse(monkey.x+22,y+34,duck?20:16,duck?13:19,0,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(monkey.x+25,y+12,17,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#c98b54';ctx.beginPath();ctx.ellipse(monkey.x+30,y+17,10,8,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#4b2b1a';ctx.beginPath();ctx.arc(monkey.x+30,y+10,2.5,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#f1c28c';ctx.beginPath();ctx.arc(monkey.x+10,y+10,6,0,Math.PI*2);ctx.arc(monkey.x+40,y+10,6,0,Math.PI*2);ctx.fill();
+ // legs
+ ctx.strokeStyle='#603b22';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(monkey.x+15,y+46);ctx.lineTo(monkey.x+10,y+51);ctx.moveTo(monkey.x+29,y+46);ctx.lineTo(monkey.x+35,y+51);ctx.stroke();
+}
+function drawObstacle(o){if(o.type==='stump'){ctx.fillStyle='#81512d';ctx.fillRect(o.x,o.y,o.w,o.h);ctx.fillStyle='#a87543';ctx.fillRect(o.x-3,o.y,o.w+6,7);ctx.strokeStyle='#5e391f';ctx.beginPath();ctx.arc(o.x+o.w/2,o.y+5,5,0,Math.PI*2);ctx.stroke()}else{ctx.fillStyle='#788b79';ctx.beginPath();ctx.moveTo(o.x,o.y+o.h);ctx.lineTo(o.x+6,o.y+8);ctx.lineTo(o.x+20,o.y);ctx.lineTo(o.x+o.w,o.y+o.h);ctx.closePath();ctx.fill()}}
+function drawBanana(b){ctx.save();ctx.translate(b.x,b.y);ctx.rotate(.35);ctx.strokeStyle='#e5aa22';ctx.lineWidth=8;ctx.lineCap='round';ctx.beginPath();ctx.arc(0,0,10,.2,Math.PI-.2);ctx.stroke();ctx.restore()}
+function update(){
+ if(state!=='playing')return;
+ frame++;const cfg=settings[mode];speed=Math.min(cfg.speed+score/900,mode==='pro'?13:mode==='medium'?10:8);score+=.12*(mode==='pro'?1.35:mode==='medium'?1.15:1);$('score').textContent=Math.floor(score);
+ groundOffset+=speed;spawn-=speed;if(spawn<=0){spawn=cfg.gap+Math.random()*380;spawnObstacle()}
+ monkey.vy+=cfg.gravity;monkey.y+=monkey.vy;if(monkey.y>=ground-monkey.h){monkey.y=ground-monkey.h;monkey.vy=0;monkey.onGround=true}
+ obstacles.forEach(o=>o.x-=speed);bananas.forEach(b=>b.x-=speed);
+ obstacles=obstacles.filter(o=>o.x+o.w>-10);bananas=bananas.filter(b=>b.x>-20);
+ const mh=monkey.duck&&monkey.onGround?30:monkey.h,my=monkey.duck&&monkey.onGround?ground-30:monkey.y;
+ const hitbox={x:monkey.x+7,y:my+5,w:monkey.w-13,h:mh-8};
+ for(const o of obstacles){if(rectHit(hitbox,{x:o.x+4,y:o.y+4,w:o.w-8,h:o.h-4})){gameOver();break}}
+ bananas=bananas.filter(b=>{if(Math.hypot((b.x-monkey.x-24),(b.y-my-25))<29){score+=10;return false}return true});
+}
+function draw(){
+ drawBackground();bananas.forEach(drawBanana);obstacles.forEach(drawObstacle);drawMonkey();
+ // little title in-game
+ ctx.fillStyle='#365d43';ctx.font='bold 13px system-ui';ctx.fillText('JUNGLE RUN',W-112,24);
+ if(state==='menu'){ctx.fillStyle='#365d43';ctx.font='bold 17px system-ui';ctx.fillText('Choose a mode and press Start',W/2-125,65)}
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+$('playBtn').onclick=start;$('againBtn').onclick=start;$('restartBtn').onclick=()=>{if(state==='menu'){start()}else start()};$('menuBtn').onclick=()=>{state='menu';show('start')};$('pauseBtn').onclick=togglePause;$('resumeBtn').onclick=togglePause;
+$('jumpBtn').onclick=jump;canvas.addEventListener('pointerdown',e=>{if(state==='playing')jump()});
+$('duckBtn').addEventListener('pointerdown',()=>{if(state==='playing')monkey.duck=true});['pointerup','pointerleave','pointercancel'].forEach(ev=>$('duckBtn').addEventListener(ev,()=>monkey.duck=false));
+window.addEventListener('keydown',e=>{if(['Space','ArrowUp','ArrowDown'].includes(e.code))e.preventDefault();if(e.code==='Space'||e.code==='ArrowUp')jump();if(e.code==='ArrowDown'&&state==='playing')monkey.duck=true;if(e.code==='KeyP')togglePause();if(e.code==='Enter'&&state==='menu')start()});
+window.addEventListener('keyup',e=>{if(e.code==='ArrowDown')monkey.duck=false});
+setMode('beginner');show('start');loop();
+})();
+</script>
+</body>
+</html>
